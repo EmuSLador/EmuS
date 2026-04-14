@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>EmuS - Cloud Profile</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <style>
+        :root { --p: #7c4dff; --bg: #050508; --success: #00e676; }
+        body { 
+            background: radial-gradient(circle at top, #150d2e 0%, #050508 100%);
+            color: #fff; font-family: 'Segoe UI', sans-serif; margin: 0; 
+            display: flex; flex-direction: column; align-items: center; min-height: 100vh; 
+        }
+        #game-wrapper { width: 100vw; max-width: 600px; aspect-ratio: 4/3; background: #000; position: relative; border-bottom: 3px solid var(--p); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        #game-container { width: 100%; height: 100%; }
+        #cloud-status { position: absolute; top: 10px; left: 10px; padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: bold; background: rgba(0,0,0,0.7); border: 1px solid rgba(255,255,255,0.2); z-index: 100; display: none; text-transform: uppercase; }
+        .menu { width: 90%; max-width: 400px; padding: 20px; text-align: center; }
+        h1 { font-size: 3rem; font-weight: 900; margin: 10px 0; background: linear-gradient(45deg, #7c4dff, #ff4081); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .profile-card { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 50px; display: flex; align-items: center; gap: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }
+        .user-avatar { width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--p); }
+        .user-name { font-size: 14px; font-weight: bold; flex-grow: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .btn-google { width: 100%; padding: 14px; border-radius: 50px; border: none; background: #fff; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; cursor: pointer; box-shadow: 0 4px 15px rgba(255,255,255,0.2); }
+        .card { background: rgba(255,255,255,0.03); padding: 25px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.08); }
+        .btn-play { width: 100%; padding: 16px; border-radius: 18px; border: none; background: linear-gradient(90deg, #6200ea, #d500f9); color: #fff; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; }
+        .btn-play:active { transform: scale(0.95); }
+        select, input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 12px; background: #000; color: #fff; border: 1px solid #333; box-sizing: border-box; }
+        .btn-logout { background: none; border: none; color: #ff5252; cursor: pointer; font-size: 11px; font-weight: bold; padding-right: 15px; }
+    </style>
+</head>
+<body>
+
+    <div id="game-wrapper">
+        <div id="cloud-status"></div>
+        <div id="game-container"></div>
+    </div>
+
+    <div class="menu">
+        <h1>EmuS</h1>
+        <div id="auth-ui">
+            <button id="btn-login" class="btn-google" onclick="loginGoogle()">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/button_google_light.svg" width="20"> Entrar com Google
+            </button>
+            <div id="user-profile" class="profile-card" style="display:none;">
+                <img id="user-photo" class="user-avatar" src="">
+                <span id="user-display-name" class="user-name"></span>
+                <button class="btn-logout" onclick="logout()">SAIR</button>
+            </div>
+        </div>
+        <div class="card">
+            <select id="console">
+                <option value="nes">NES (Nintendinho)</option>
+                <option value="snes">Super Nintendo</option>
+                <option value="gba">Game Boy Advance</option>
+                <option value="pcsx_rearmed">PlayStation 1</option>
+            </select>
+            <input type="file" id="file-input">
+            <button class="btn-play" onclick="play()">ATIVAR BOOST & JOGAR</button>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURAÇÕES DO SEU PROJETO EMUS-LADOR
+        const firebaseConfig = {
+            apiKey: "AIzaSyDMX8wL3FTHfZDXh3Y5TGZrPk-5u5OfYfM",
+            authDomain: "emus-lador.firebaseapp.com",
+            projectId: "emus-lador",
+            storageBucket: "emus-lador.firebasestorage.app",
+            messagingSenderId: "287105188539",
+            appId: "1:287105188539:web:2c13186089a65d3e4c1f9e"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+
+        auth.onAuthStateChanged(user => {
+            const btnLogin = document.getElementById('btn-login');
+            const profileCard = document.getElementById('user-profile');
+            if (user) {
+                btnLogin.style.display = 'none';
+                profileCard.style.display = 'flex';
+                document.getElementById('user-display-name').innerText = user.displayName;
+                document.getElementById('user-photo').src = user.photoURL;
+                setStatus("Nuvem Ativa", "#00e676");
+            } else {
+                btnLogin.style.display = 'flex';
+                profileCard.style.display = 'none';
+                setStatus("Modo Offline", "#888");
+            }
+        });
+
+        function setStatus(t, c) {
+            const s = document.getElementById('cloud-status');
+            s.innerText = t; s.style.color = c; s.style.borderColor = c; s.style.display = "block";
+        }
+
+        function loginGoogle() { auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => alert("Erro: " + e.message)); }
+        function logout() { auth.signOut(); }
+
+        async function play() {
+            const file = document.getElementById('file-input').files[0];
+            if (!file) return alert("Escolha uma ROM primeiro!");
+            const core = document.getElementById('console').value;
+            const romUrl = URL.createObjectURL(file);
+
+            window.EJS_player = "#game-container";
+            window.EJS_core = core;
+            window.EJS_gameUrl = romUrl;
+            window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
+            window.EJS_startOnLoaded = true;
+            window.EJS_skip_frames = 1;
+
+            window.EJS_onSaveState = async function(data) {
+                const user = auth.currentUser;
+                const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
+                localStorage.setItem("local_save_" + file.name, b64);
+                if (user) {
+                    setStatus("Sincronizando...", "#ffea00");
+                    await db.collection("saves").doc(user.uid + "_" + file.name).set({
+                        data: b64, timestamp: Date.now()
+                    });
+                    setStatus("Nuvem OK", "#00e676");
+                }
+            };
+
+            window.EJS_onGameStart = async function() {
+                const user = auth.currentUser;
+                let dataToLoad = localStorage.getItem("local_save_" + file.name);
+                if (user) {
+                    setStatus("Buscando na Nuvem...", "#ffea00");
+                    const doc = await db.collection("saves").doc(user.uid + "_" + file.name).get();
+                    if (doc.exists) {
+                        dataToLoad = doc.data().data;
+                        setStatus("Cloud Loaded", "#00e676");
+                    }
+                }
+                if (dataToLoad) {
+                    setTimeout(() => {
+                        const binary = atob(dataToLoad);
+                        const bytes = new Uint8Array(binary.length);
+                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                        EJS_Emulator.gameManager.importSave(bytes);
+                    }, 4500);
+                }
+            };
+
+            let s = document.createElement("script");
+            s.src = "https://cdn.emulatorjs.org/stable/data/loader.js";
+            document.head.appendChild(s);
+        }
+    </script>
+</body>
+</html>
+
