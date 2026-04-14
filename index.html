@@ -62,7 +62,6 @@
     </div>
 
     <script>
-        // CONFIGURAÇÕES DO SEU PROJETO EMUS-LADOR
         const firebaseConfig = {
             apiKey: "AIzaSyDMX8wL3FTHfZDXh3Y5TGZrPk-5u5OfYfM",
             authDomain: "emus-lador.firebaseapp.com",
@@ -105,6 +104,7 @@
             if (!file) return alert("Escolha uma ROM primeiro!");
             const core = document.getElementById('console').value;
             const romUrl = URL.createObjectURL(file);
+            const gameName = file.name;
 
             window.EJS_player = "#game-container";
             window.EJS_core = core;
@@ -113,38 +113,47 @@
             window.EJS_startOnLoaded = true;
             window.EJS_skip_frames = 1;
 
+            // DETECTOR DE SAVE
             window.EJS_onSaveState = async function(data) {
                 const user = auth.currentUser;
                 const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
-                localStorage.setItem("local_save_" + file.name, b64);
+                localStorage.setItem("local_save_" + gameName, b64);
                 if (user) {
                     setStatus("Sincronizando...", "#ffea00");
-                    await db.collection("saves").doc(user.uid + "_" + file.name).set({
+                    await db.collection("saves").doc(user.uid + "_" + gameName).set({
                         data: b64, timestamp: Date.now()
                     });
                     setStatus("Nuvem OK", "#00e676");
                 }
             };
 
-            window.EJS_onGameStart = async function() {
-                const user = auth.currentUser;
-                let dataToLoad = localStorage.getItem("local_save_" + file.name);
-                if (user) {
-                    setStatus("Buscando na Nuvem...", "#ffea00");
-                    const doc = await db.collection("saves").doc(user.uid + "_" + file.name).get();
-                    if (doc.exists) {
-                        dataToLoad = doc.data().data;
-                        setStatus("Cloud Loaded", "#00e676");
+            // CARREGADOR DE NUVEM AUTOMÁTICO
+            window.EJS_onGameStart = function() {
+                console.log("Iniciando injeção...");
+                setTimeout(async () => {
+                    const user = auth.currentUser;
+                    let dataToLoad = localStorage.getItem("local_save_" + gameName);
+                    
+                    if (user) {
+                        setStatus("Buscando na Nuvem...", "#ffea00");
+                        const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
+                        if (doc.exists) {
+                            dataToLoad = doc.data().data;
+                        }
                     }
-                }
-                if (dataToLoad) {
-                    setTimeout(() => {
+
+                    if (dataToLoad) {
                         const binary = atob(dataToLoad);
                         const bytes = new Uint8Array(binary.length);
                         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                        EJS_Emulator.gameManager.importSave(bytes);
-                    }, 4500);
-                }
+                        
+                        // Injeta o arquivo direto no display do emulador
+                        if (window.EJS_emulator && window.EJS_emulator.display) {
+                            window.EJS_emulator.display.uploadSave(bytes);
+                            setStatus("Cloud Loaded", "#00e676");
+                        }
+                    }
+                }, 5000); // Espera 5 segundos para o motor carregar
             };
 
             let s = document.createElement("script");
@@ -154,4 +163,3 @@
     </script>
 </body>
 </html>
-
