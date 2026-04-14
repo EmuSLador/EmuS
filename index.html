@@ -22,10 +22,9 @@
         .profile-card { background: rgba(255,255,255,0.05); padding: 12px; border-radius: 50px; display: flex; align-items: center; gap: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px); }
         .user-avatar { width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--p); }
         .user-name { font-size: 14px; font-weight: bold; flex-grow: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .btn-google { width: 100%; padding: 14px; border-radius: 50px; border: none; background: #fff; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; cursor: pointer; box-shadow: 0 4px 15px rgba(255,255,255,0.2); }
+        .btn-google { width: 100%; padding: 14px; border-radius: 50px; border: none; background: #fff; color: #000; font-weight: bold; display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 20px; cursor: pointer; }
         .card { background: rgba(255,255,255,0.03); padding: 25px; border-radius: 30px; border: 1px solid rgba(255,255,255,0.08); }
-        .btn-play { width: 100%; padding: 16px; border-radius: 18px; border: none; background: linear-gradient(90deg, #6200ea, #d500f9); color: #fff; font-weight: bold; font-size: 16px; cursor: pointer; transition: 0.3s; }
-        .btn-play:active { transform: scale(0.95); }
+        .btn-play { width: 100%; padding: 16px; border-radius: 18px; border: none; background: linear-gradient(90deg, #6200ea, #d500f9); color: #fff; font-weight: bold; font-size: 16px; cursor: pointer; }
         select, input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 12px; background: #000; color: #fff; border: 1px solid #333; box-sizing: border-box; }
         .btn-logout { background: none; border: none; color: #ff5252; cursor: pointer; font-size: 11px; font-weight: bold; padding-right: 15px; }
     </style>
@@ -51,13 +50,13 @@
         </div>
         <div class="card">
             <select id="console">
-                <option value="nes">NES (Nintendinho)</option>
+                <option value="nes">NES</option>
                 <option value="snes">Super Nintendo</option>
-                <option value="gba">Game Boy Advance</option>
-                <option value="pcsx_rearmed">PlayStation 1</option>
+                <option value="gba">GBA</option>
+                <option value="pcsx_rearmed">PS1</option>
             </select>
             <input type="file" id="file-input">
-            <button class="btn-play" onclick="play()">ATIVAR BOOST & JOGAR</button>
+            <button class="btn-play" onclick="play()">JOGAR</button>
         </div>
     </div>
 
@@ -76,18 +75,12 @@
         const db = firebase.firestore();
 
         auth.onAuthStateChanged(user => {
-            const btnLogin = document.getElementById('btn-login');
-            const profileCard = document.getElementById('user-profile');
             if (user) {
-                btnLogin.style.display = 'none';
-                profileCard.style.display = 'flex';
+                document.getElementById('btn-login').style.display = 'none';
+                document.getElementById('user-profile').style.display = 'flex';
                 document.getElementById('user-display-name').innerText = user.displayName;
                 document.getElementById('user-photo').src = user.photoURL;
-                setStatus("Nuvem Ativa", "#00e676");
-            } else {
-                btnLogin.style.display = 'flex';
-                profileCard.style.display = 'none';
-                setStatus("Modo Offline", "#888");
+                setStatus("Conectado", "#00e676");
             }
         });
 
@@ -96,73 +89,58 @@
             s.innerText = t; s.style.color = c; s.style.borderColor = c; s.style.display = "block";
         }
 
-        function loginGoogle() { auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()).catch(e => alert("Erro: " + e.message)); }
-        function logout() { auth.signOut(); }
+        function loginGoogle() { auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+        function logout() { auth.signOut(); location.reload(); }
 
         async function play() {
             const file = document.getElementById('file-input').files[0];
-            if (!file) return alert("Escolha uma ROM primeiro!");
+            if (!file) return alert("ROM?");
             const core = document.getElementById('console').value;
-            const romUrl = URL.createObjectURL(file);
             const gameName = file.name;
 
             window.EJS_player = "#game-container";
             window.EJS_core = core;
-            window.EJS_gameUrl = romUrl;
+            window.EJS_gameUrl = URL.createObjectURL(file);
             window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
             window.EJS_startOnLoaded = true;
 
-            // SALVAR
+            // SALVAR NA NUVEM
             window.EJS_onSaveState = async function(data) {
                 const user = auth.currentUser;
+                if (!user) return;
                 const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
-                localStorage.setItem("local_save_" + gameName, b64);
-                if (user) {
-                    setStatus("Sincronizando...", "#ffea00");
-                    try {
-                        await db.collection("saves").doc(user.uid + "_" + gameName).set({
-                            data: b64, timestamp: Date.now()
-                        });
-                        setStatus("Nuvem OK", "#00e676");
-                        setTimeout(() => setStatus("Nuvem Ativa", "#00e676"), 2000);
-                    } catch (e) { setStatus("Erro ao Salvar", "#ff5252"); }
-                }
+                setStatus("Salvando...", "#ffea00");
+                await db.collection("saves").doc(user.uid + "_" + gameName).set({ data: b64 });
+                setStatus("Salvo!", "#00e676");
             };
 
-            // CARREGAR COM TIMEOUT (IMPEDE DE TRAVAR)
+            // CARREGAR DA NUVEM (FORÇADO)
             window.EJS_onGameStart = function() {
                 setTimeout(async () => {
                     const user = auth.currentUser;
+                    if (!user) return setStatus("Sem Login", "#ff5252");
+
                     setStatus("Buscando...", "#ffea00");
-
-                    // Segurança: se em 8 segundos não achar, libera a tela
-                    const timeoutId = setTimeout(() => {
-                        if (document.getElementById('cloud-status').innerText === "Buscando...") {
-                            setStatus("Nuvem Ativa", "#00e676");
+                    const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
+                    
+                    if (doc.exists) {
+                        const bytes = Uint8Array.from(atob(doc.data().data), c => c.charCodeAt(0));
+                        if (window.EJS_emulator) {
+                            // Injeta o arquivo direto no buffer do emulador
+                            window.EJS_emulator.display.uploadSave(bytes);
+                            
+                            // Força o carregamento manual via comando interno
+                            setTimeout(() => {
+                                try {
+                                    window.EJS_emulator.display.loadState();
+                                    setStatus("Sucesso!", "#00e676");
+                                } catch(e) { setStatus("Tente Manual", "#ffea00"); }
+                            }, 1500);
                         }
-                    }, 8000);
-
-                    if (user) {
-                        try {
-                            const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
-                            if (doc.exists) {
-                                const dataToLoad = doc.data().data;
-                                const bytes = new Uint8Array(atob(dataToLoad).split("").map(c => c.charCodeAt(0)));
-                                
-                                if (window.EJS_emulator && window.EJS_emulator.display) {
-                                    window.EJS_emulator.display.uploadSave(bytes);
-                                    setTimeout(() => {
-                                        if(window.EJS_emulator.display.loadState) window.EJS_emulator.display.loadState();
-                                        setStatus("Cloud Loaded", "#00e676");
-                                        clearTimeout(timeoutId);
-                                    }, 1000);
-                                }
-                            } else {
-                                setStatus("Nuvem Ativa", "#00e676");
-                            }
-                        } catch (e) { setStatus("Erro Nuvem", "#ff5252"); }
+                    } else {
+                        setStatus("Novo Jogo", "#888");
                     }
-                }, 5000); 
+                }, 7000); 
             };
 
             let s = document.createElement("script");
