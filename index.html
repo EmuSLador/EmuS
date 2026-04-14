@@ -103,43 +103,45 @@
             window.EJS_gameUrl = URL.createObjectURL(file);
             window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
             window.EJS_startOnLoaded = true;
+            
+            // Correção do GameID para evitar o erro do console
+            window.EJS_gameID = gameName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
 
-            // SALVAR NA NUVEM
             window.EJS_onSaveState = async function(data) {
                 const user = auth.currentUser;
                 if (!user) return;
                 const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
                 setStatus("Salvando...", "#ffea00");
-                await db.collection("saves").doc(user.uid + "_" + gameName).set({ data: b64 });
-                setStatus("Salvo!", "#00e676");
+                try {
+                    await db.collection("saves").doc(user.uid + "_" + gameName).set({ data: b64, timestamp: Date.now() });
+                    setStatus("Salvo!", "#00e676");
+                    setTimeout(() => setStatus("Conectado", "#00e676"), 2000);
+                } catch(e) { setStatus("Erro ao Salvar", "#ff5252"); }
             };
 
-            // CARREGAR DA NUVEM (FORÇADO)
             window.EJS_onGameStart = function() {
                 setTimeout(async () => {
                     const user = auth.currentUser;
                     if (!user) return setStatus("Sem Login", "#ff5252");
 
                     setStatus("Buscando...", "#ffea00");
-                    const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
-                    
-                    if (doc.exists) {
-                        const bytes = Uint8Array.from(atob(doc.data().data), c => c.charCodeAt(0));
-                        if (window.EJS_emulator) {
-                            // Injeta o arquivo direto no buffer do emulador
-                            window.EJS_emulator.display.uploadSave(bytes);
-                            
-                            // Força o carregamento manual via comando interno
-                            setTimeout(() => {
-                                try {
-                                    window.EJS_emulator.display.loadState();
-                                    setStatus("Sucesso!", "#00e676");
-                                } catch(e) { setStatus("Tente Manual", "#ffea00"); }
-                            }, 1500);
+                    try {
+                        const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
+                        if (doc.exists) {
+                            const bytes = Uint8Array.from(atob(doc.data().data), c => c.charCodeAt(0));
+                            if (window.EJS_emulator) {
+                                window.EJS_emulator.display.uploadSave(bytes);
+                                setTimeout(() => {
+                                    try {
+                                        window.EJS_emulator.display.loadState();
+                                        setStatus("Sucesso!", "#00e676");
+                                    } catch(e) { setStatus("Use Load Manual", "#ffea00"); }
+                                }, 2000);
+                            }
+                        } else {
+                            setStatus("Novo Jogo", "#888");
                         }
-                    } else {
-                        setStatus("Novo Jogo", "#888");
-                    }
+                    } catch(e) { setStatus("Erro na Nuvem", "#ff5252"); }
                 }, 7000); 
             };
 
