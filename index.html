@@ -111,53 +111,56 @@
             window.EJS_gameUrl = romUrl;
             window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
             window.EJS_startOnLoaded = true;
-            window.EJS_skip_frames = 1;
 
+            // SALVAR
             window.EJS_onSaveState = async function(data) {
                 const user = auth.currentUser;
                 const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
                 localStorage.setItem("local_save_" + gameName, b64);
                 if (user) {
                     setStatus("Sincronizando...", "#ffea00");
-                    await db.collection("saves").doc(user.uid + "_" + gameName).set({
-                        data: b64, timestamp: Date.now()
-                    });
-                    setStatus("Nuvem OK", "#00e676");
+                    try {
+                        await db.collection("saves").doc(user.uid + "_" + gameName).set({
+                            data: b64, timestamp: Date.now()
+                        });
+                        setStatus("Nuvem OK", "#00e676");
+                        setTimeout(() => setStatus("Nuvem Ativa", "#00e676"), 2000);
+                    } catch (e) { setStatus("Erro ao Salvar", "#ff5252"); }
                 }
             };
 
+            // CARREGAR COM TIMEOUT (IMPEDE DE TRAVAR)
             window.EJS_onGameStart = function() {
                 setTimeout(async () => {
                     const user = auth.currentUser;
-                    let dataToLoad = localStorage.getItem("local_save_" + gameName);
-                    
-                    if (user) {
-                        setStatus("Buscando na Nuvem...", "#ffea00");
-                        const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
-                        if (doc.exists) {
-                            dataToLoad = doc.data().data;
-                        }
-                    }
+                    setStatus("Buscando...", "#ffea00");
 
-                    if (dataToLoad) {
-                        const binary = atob(dataToLoad);
-                        const bytes = new Uint8Array(binary.length);
-                        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                        
-                        try {
-                            // Envia o save para a memória do emulador
-                            window.EJS_emulator.display.uploadSave(bytes);
-                            
-                            // Força o carregamento do State automaticamente
-                            setTimeout(() => {
-                                if(window.EJS_emulator.display.loadState) {
-                                    window.EJS_emulator.display.loadState();
-                                    setStatus("Cloud Loaded", "#00e676");
-                                }
-                            }, 1000);
-                        } catch(e) {
-                            console.log("Erro no auto-load, tente manual.");
+                    // Segurança: se em 8 segundos não achar, libera a tela
+                    const timeoutId = setTimeout(() => {
+                        if (document.getElementById('cloud-status').innerText === "Buscando...") {
+                            setStatus("Nuvem Ativa", "#00e676");
                         }
+                    }, 8000);
+
+                    if (user) {
+                        try {
+                            const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
+                            if (doc.exists) {
+                                const dataToLoad = doc.data().data;
+                                const bytes = new Uint8Array(atob(dataToLoad).split("").map(c => c.charCodeAt(0)));
+                                
+                                if (window.EJS_emulator && window.EJS_emulator.display) {
+                                    window.EJS_emulator.display.uploadSave(bytes);
+                                    setTimeout(() => {
+                                        if(window.EJS_emulator.display.loadState) window.EJS_emulator.display.loadState();
+                                        setStatus("Cloud Loaded", "#00e676");
+                                        clearTimeout(timeoutId);
+                                    }, 1000);
+                                }
+                            } else {
+                                setStatus("Nuvem Ativa", "#00e676");
+                            }
+                        } catch (e) { setStatus("Erro Nuvem", "#ff5252"); }
                     }
                 }, 5000); 
             };
