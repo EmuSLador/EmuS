@@ -98,50 +98,67 @@
             const core = document.getElementById('console').value;
             const gameName = file.name;
 
+            // CONFIGURAÇÕES DO EMULADOR (GameID movido para o topo)
+            window.EJS_gameID = gameName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
             window.EJS_player = "#game-container";
             window.EJS_core = core;
             window.EJS_gameUrl = URL.createObjectURL(file);
             window.EJS_pathtodata = "https://cdn.emulatorjs.org/stable/data/";
             window.EJS_startOnLoaded = true;
-            
-            // Correção do GameID para evitar o erro do console
-            window.EJS_gameID = gameName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
 
+            // SALVAR NA NUVEM + BACKUP LOCAL
             window.EJS_onSaveState = async function(data) {
+                const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
+                localStorage.setItem("local_save_" + window.EJS_gameID, b64);
+                
                 const user = auth.currentUser;
                 if (!user) return;
-                const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(data)));
+
                 setStatus("Salvando...", "#ffea00");
                 try {
                     await db.collection("saves").doc(user.uid + "_" + gameName).set({ data: b64, timestamp: Date.now() });
                     setStatus("Salvo!", "#00e676");
                     setTimeout(() => setStatus("Conectado", "#00e676"), 2000);
-                } catch(e) { setStatus("Erro ao Salvar", "#ff5252"); }
+                } catch(e) { 
+                    setStatus("Erro ao Salvar", "#ff5252"); 
+                    console.error("Erro Firebase:", e);
+                }
             };
 
+            // CARREGAR DA NUVEM (COM FALLBACK LOCAL)
             window.EJS_onGameStart = function() {
                 setTimeout(async () => {
                     const user = auth.currentUser;
-                    if (!user) return setStatus("Sem Login", "#ff5252");
+                    let dataToLoad = localStorage.getItem("local_save_" + window.EJS_gameID);
 
                     setStatus("Buscando...", "#ffea00");
-                    try {
-                        const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
-                        if (doc.exists) {
-                            const bytes = Uint8Array.from(atob(doc.data().data), c => c.charCodeAt(0));
-                            if (window.EJS_emulator) {
-                                window.EJS_emulator.display.uploadSave(bytes);
-                                setTimeout(() => {
-                                    try {
-                                        window.EJS_emulator.display.loadState();
-                                        setStatus("Sucesso!", "#00e676");
-                                    } catch(e) { setStatus("Use Load Manual", "#ffea00"); }
-                                }, 2000);
+
+                    if (user) {
+                        try {
+                            const doc = await db.collection("saves").doc(user.uid + "_" + gameName).get();
+                            if (doc.exists) {
+                                dataToLoad = doc.data().data;
                             }
-                        } else {
-                            setStatus("Novo Jogo", "#888");
+                        } catch(e) { 
+                            setStatus("Erro na Nuvem", "#ff5252"); 
+                            console.error("Erro Firestore:", e);
                         }
-                    } catch(e) { setStatus("Erro na Nuvem", "#ff5252"); }
+                    }
+
+                    if (dataToLoad && window.EJS_emulator) {
+                        const bytes = Uint8Array.from(atob(dataToLoad), c => c.charCodeAt(0));
+                        window.EJS_emulator.display.uploadSave(bytes);
+                        setTimeout(() => {
+                            try {
+                                window.EJS_emulator.display.loadState();
+                                setStatus("Sucesso!", "#00e676");
+                                setTimeout(() => setStatus("Conectado", "#00e676"), 3000);
+                            } catch(e) { setStatus("Use Load Manual", "#ffea00"); }
+                        }, 2000);
+                    } else {
+                        setStatus("Novo Jogo", "#888");
+                        setTimeout(() => setStatus("Conectado", "#00e676"), 3000);
+                    }
                 }, 7000); 
             };
 
